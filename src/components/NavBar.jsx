@@ -27,7 +27,8 @@ const basenavigation = [
 
 
 const NavBar = () => {
-  const { isWalletConnected, hasContent, address } = useWallet();
+  const { walletItems, isWalletConnected, address } = useWallet();
+  const hasContent = walletItems.length > 0;
   const { isMobile } = useDeviceContext();
   const [showNav, setShowNav] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);

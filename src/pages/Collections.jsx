@@ -2,11 +2,13 @@ import React from "react"
 import { motion } from "framer-motion"
 import { fadeIn, staggerContainer } from "../utils/motion"
 import collections  from "../lib/collections/collections"
+import { useOrdinalsHost } from "../context/OrdinalsHostContext"
 import ordImage from '/images/ordinals.svg';
 
 
- 
+
 const Collections = () => {
+  const ordHost = useOrdinalsHost();
   return (
     <motion.div
       variants={staggerContainer}
@@ -25,14 +27,17 @@ const Collections = () => {
   </div>
 
 <div className="flex flex-wrap justify-center gap-6">
-    {collections.map((item, index) => (
-      <div  
+    {collections.map((item, index) => {
+      const contentUrl = `${ordHost}/content/${item.insID}`;
+      const inscriptionUrl = `${ordHost}/inscription/${item.insID}`;
+      return (
+      <div
         key={`${item.insID}-${index}`}
         className="card mt-4 max-w-2xl gap-4 rounded-box border border-base-300 bg-base-200 transition duration-300 hover:-translate-y-1 hover:border-primary/50"
       >
         <div className="card-body">
-          
-          <iframe src={item.ordinal} title={item.name}  height="100%" width="100%" allowFullScreen></iframe>
+
+          <iframe src={contentUrl} title={item.name}  height="100%" width="100%" allowFullScreen></iframe>
          
 
           <h2 className="card-title font-urbanist text-3xl font-black">
@@ -61,7 +66,7 @@ const Collections = () => {
                 </a>
               </li> */}
               <li>
-                <a className="tooltip" data-tip="Details" href={"https://radinals.bitcoinaudio.co/inscription/" + item.insID} target="_blank" rel="noreferrer">
+                <a className="tooltip" data-tip="Details" href={inscriptionUrl} target="_blank" rel="noreferrer">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     className="h-5 w-5"
@@ -77,7 +82,7 @@ const Collections = () => {
                 </a>
               </li>
               <li>
-                <a className="tooltip" data-tip="Ordinal" href={item.ordinal} target="_blank" rel="noreferrer">
+                <a className="tooltip" data-tip="Ordinal" href={contentUrl} target="_blank" rel="noreferrer">
                   <img className="size-5" src={ordImage} alt="IOM" />
                 </a>
               </li>
@@ -99,9 +104,9 @@ const Collections = () => {
             </div>
         </div>
       </div>
-      
-    ))}
-    
+      );
+    })}
+
   </div>
 
 

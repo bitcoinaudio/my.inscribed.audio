@@ -1,479 +1,205 @@
-"use client";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Button } from "./ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
-import { cn } from "../lib/utils";
-import {
-  getBRC420Data,
-  getBitmapData,
-  getInscriptionAttributes,
-  isBeatBlockInscription,
-  isEnhancedInscription,
-} from "../utils/inscriptions";
-import { buildWalletReentryDeeplink } from "../utils/walletDeeplink";
-import { useWallet } from "../context/WalletContext";
-import { useDeviceContext } from "../utils/DeviceStore";
-import idesofmarch from "../lib/collections/idesofmarch.json";
-import dust from "../lib/collections/dust.json";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { WalletLogin, useWallet } from "@bitcoinaudio-org/signer/react";
+import { getXverseProvider } from "@bitcoinaudio-org/signer/wallet";
 
+/**
+ * Wallet connect for my.inscribed.audio.
+ *
+ * Two differences from the shared <PaymentWalletButton>, both because of what this
+ * site is: it takes no payments, and reading a wallet is the point of the page.
+ *
+ * 1. Copy. The shared button is an action-scoped payment chooser ("Pay with …").
+ *    Nothing here is for sale, so the rows say Connect, and the panel says what
+ *    connecting actually does.
+ * 2. Detection. The shared provider decides availability once, during a ~5s window
+ *    at mount. A wallet that injects later is never noticed, the row stays
+ *    disabled — and a disabled button answers a click with nothing at all, which
+ *    is indistinguishable from a broken page. This menu re-detects on open, on
+ *    window focus, and on a short interval while it is open.
+ *
+ * The connection itself is still the shared provider's own connectWallet() — the
+ * same call the shared button makes — so UniSat/Xverse handling, mobile deeplinks
+ * and persistence are unchanged; only the menu chrome is local.
+ */
 type WalletName = "unisat" | "xverse";
 
-type ProcessedInscription = {
-  id: string;
-  isIOM: boolean;
-  isDust: boolean;
-  contentType?: string;
-  isEnhanced: boolean;
-  attributes?: unknown;
-  isBRC420: boolean;
-  brc420Url?: string;
-  isBitmap?: boolean;
-  bitmap?: string;
-  isBeatBlock?: boolean;
-};
+const WALLET_LABEL: Record<WalletName, string> = { unisat: "UniSat", xverse: "Xverse" };
 
-type RawWalletInscription = {
-  inscriptionId?: string;
-  contentType?: string;
-};
+const detectProviders = () => ({
+  unisat: typeof window !== "undefined" && Boolean(window.unisat),
+  xverse: typeof window !== "undefined" && Boolean(getXverseProvider()),
+});
 
-type WalletConnectError = Error & {
-  code?: string;
-  deeplink?: string;
-  walletProvider?: WalletName;
-};
-
-type MobilePromptState = {
-  wallet: WalletName;
-  deeplink: string;
-  message: string;
-};
-
-const WALLET_OPTIONS: Array<{ name: WalletName; label: string }> = [
-  { name: "unisat", label: "UniSat" },
-  { name: "xverse", label: "Xverse" },
-];
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const ConnectWallet = ({ className }: { className?: string }) => {
-  const navigate = useNavigate();
-  const { isMobile, inWalletBrowser } = useDeviceContext();
+export function WalletConnectMenu({ className = "" }: { className?: string }) {
   const {
+    runtime,
     isWalletConnected,
     provider,
-    availableWallets,
-    authStatus,
-    authError,
+    address,
+    mobileResumeWallet,
     connectWallet,
     disconnectWallet,
-    setWalletItems,
-    fetchInscriptions,
-    authenticateWallet,
-    mobileConnectNotice,
-    clearMobileConnectNotice,
-    mobileResumeWallet,
     consumeMobileResumeWallet,
   } = useWallet();
 
-  const [isOpen, setIsOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [walletLoading, setWalletLoading] = useState<WalletName | null>(null);
-  const [mobilePrompt, setMobilePrompt] = useState<MobilePromptState | null>(null);
-  const [isAutoResuming, setIsAutoResuming] = useState(false);
-  const [pendingWalletHint, setPendingWalletHint] = useState<WalletName | null>(null);
-  const restoredSyncProviderRef = useRef<WalletName | null>(null);
+  const [open, setOpen] = useState(false);
+  const [providers, setProviders] = useState(detectProviders);
+  const [busy, setBusy] = useState<WalletName | null>(null);
+  const [notice, setNotice] = useState("");
+  const [deeplink, setDeeplink] = useState("");
+  const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const refreshPending = () => {
-      const pending = window.sessionStorage.getItem("myinscribed.pendingMobileWallet");
-      if (pending === "unisat" || pending === "xverse") {
-        setPendingWalletHint(pending);
-      } else {
-        setPendingWalletHint(null);
-      }
-    };
-
-    refreshPending();
-    window.addEventListener("focus", refreshPending);
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        refreshPending();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-
+    if (!open) return undefined;
+    setProviders(detectProviders());
+    const timer = window.setInterval(() => setProviders(detectProviders()), 300);
+    const onFocus = () => setProviders(detectProviders());
+    window.addEventListener("focus", onFocus);
     return () => {
-      window.removeEventListener("focus", refreshPending);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
     };
-  }, []);
+  }, [open]);
 
   useEffect(() => {
-    if (!mobileConnectNotice) return;
+    if (!open) return undefined;
+    const onPointerDown = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [open]);
 
-    setMobilePrompt((current: MobilePromptState | null) => {
-      if (current) return { ...current, message: mobileConnectNotice };
-      return {
-        wallet: (mobileResumeWallet || "unisat") as WalletName,
-        deeplink: "",
-        message: mobileConnectNotice,
-      };
-    });
-  }, [mobileConnectNotice, mobileResumeWallet]);
-
-  const idesOfMarchIDs = useMemo(
-    () => new Set(idesofmarch.map((item: { id: string }) => item.id)),
-    []
-  );
-  const dustIDs = useMemo(
-    () => new Set(dust.map((item: { id: string }) => item.id)),
-    []
-  );
-
-  const processInscriptions = useCallback(async (raw: RawWalletInscription[]): Promise<ProcessedInscription[]> => {
-    const results = await Promise.all(
-      raw.map(async (inscription: RawWalletInscription) => {
-        const id = inscription.inscriptionId;
-        if (!id) return null;
-
-        let brc420 = {};
-        let bitmap = {};
-        try {
-          [brc420, bitmap] = await Promise.all([getBRC420Data(id), getBitmapData(id)]);
-        } catch (error) {
-          console.warn(`Metadata enrichment failed for inscription ${id}:`, error);
-        }
-
-        return {
-          id,
-          isIOM: idesOfMarchIDs.has(id),
-          isDust: dustIDs.has(id),
-          contentType: inscription.contentType,
-          isEnhanced: isEnhancedInscription(id, idesOfMarchIDs, dustIDs),
-          attributes: getInscriptionAttributes(id),
-          isBeatBlock: isBeatBlockInscription(id),
-          ...brc420,
-          ...bitmap,
-        };
-      })
-    );
-
-    return results.filter(Boolean) as ProcessedInscription[];
-  }, [idesOfMarchIDs, dustIDs]);
-
-  const fetchInscriptionsWithRetry = useCallback(async (walletName: WalletName) => {
-    const shouldRetry = walletName === "xverse" && isMobile;
-    const maxAttempts = shouldRetry ? 4 : 1;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  const choose = useCallback(
+    async (wallet: WalletName, options?: { skipDeeplink?: boolean }) => {
+      setBusy(wallet);
+      setNotice("");
+      setDeeplink("");
       try {
-        const inscriptions = await fetchInscriptions(100, walletName);
-        if (inscriptions.length > 0) {
-          return inscriptions;
-        }
+        await connectWallet(wallet, options);
+        setOpen(false);
       } catch (error) {
-        if (attempt === maxAttempts) {
-          console.error(`Failed to fetch inscriptions for ${walletName}:`, error);
+        const failure = error as { code?: string; deeplink?: string; message?: string };
+        if (failure?.code === "DEEPLINK_LAUNCHED" && failure.deeplink) {
+          // Mobile browser: the provider only exists inside the wallet's own browser.
+          setDeeplink(failure.deeplink);
+        } else if (/not detected|not found/i.test(failure?.message || "")) {
+          setNotice(
+            `${WALLET_LABEL[wallet]} was not found in this browser. Install its extension, or open my.inscribed.audio inside the ${WALLET_LABEL[wallet]} app's own browser.`,
+          );
         } else {
-          console.warn(`Retrying inscription fetch for ${walletName} (attempt ${attempt + 1}/${maxAttempts})`, error);
+          setNotice(failure?.message || `${WALLET_LABEL[wallet]} connection failed`);
         }
-      }
-
-      if (attempt < maxAttempts) {
-        await sleep(350 * attempt);
-      }
-    }
-
-    return [];
-  }, [fetchInscriptions, isMobile]);
-
-  const handleDisconnect = () => {
-    restoredSyncProviderRef.current = null;
-    setIsOpen(false);
-    setIsLoading(false);
-    setWalletLoading(null);
-    setIsAutoResuming(false);
-    setMobilePrompt(null);
-    clearMobileConnectNotice();
-    disconnectWallet();
-    setWalletItems([]);
-    navigate("/");
-  };
-
-  const completeWalletConnection = useCallback(async (
-    walletName: WalletName,
-    options?: { skipDeeplink?: boolean }
-  ) => {
-    await connectWallet(walletName, options);
-    setIsOpen(false);
-    const inscriptions = await fetchInscriptionsWithRetry(walletName);
-    const processed = await processInscriptions(inscriptions);
-    setWalletItems(processed);
-    const inscriptionIds = processed.map((item) => item.id);
-    await authenticateWallet(inscriptionIds);
-    navigate("/mymedia");
-  }, [
-    connectWallet,
-    fetchInscriptionsWithRetry,
-    processInscriptions,
-    setWalletItems,
-    authenticateWallet,
-    navigate,
-  ]);
-
-  const handleConnect = async (walletName: WalletName) => {
-    if (isLoading) return;
-
-    if (provider === walletName && isWalletConnected) {
-      handleDisconnect();
-      return;
-    }
-
-    setIsLoading(true);
-    setWalletLoading(walletName);
-    setMobilePrompt(null);
-
-    try {
-      await completeWalletConnection(walletName);
-    } catch (error) {
-      const walletError = error as WalletConnectError;
-      if (walletError.code === "DEEPLINK_LAUNCHED" && walletError.deeplink) {
-        setMobilePrompt({
-          wallet: walletName,
-          deeplink: walletError.deeplink,
-          message: `Opening ${walletName === "unisat" ? "UniSat" : "Xverse"}. If it did not open, use the button below.`,
-        });
-        setIsOpen(true);
-        return;
-      }
-
-      console.error(`Connection to ${walletName} failed:`, error);
-      disconnectWallet();
-      setWalletItems([]);
-    } finally {
-      setWalletLoading(null);
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!mobileResumeWallet || isLoading) return;
-
-    let active = true;
-
-    const resumeWalletConnect = async () => {
-      setIsAutoResuming(true);
-      setIsLoading(true);
-      setWalletLoading(mobileResumeWallet);
-
-      try {
-        await completeWalletConnection(mobileResumeWallet, { skipDeeplink: true });
-      } catch (error) {
-        if (!active) return;
-
-        console.error(`Auto-resume connection to ${mobileResumeWallet} failed:`, error);
-        const retryDeeplink = buildWalletReentryDeeplink(mobileResumeWallet);
-
-        setMobilePrompt({
-          wallet: mobileResumeWallet,
-          deeplink: retryDeeplink,
-          message: `We couldn't access your wallet in this browser. Open this site in ${
-            mobileResumeWallet === "unisat" ? "UniSat" : "Xverse"
-          } and try again.`,
-        });
       } finally {
-        if (active) {
-          consumeMobileResumeWallet();
-          setWalletLoading(null);
-          setIsLoading(false);
-          setIsAutoResuming(false);
-          if (typeof window !== "undefined") {
-            const pending = window.sessionStorage.getItem("myinscribed.pendingMobileWallet");
-            if (pending === "unisat" || pending === "xverse") {
-              setPendingWalletHint(pending);
-            } else {
-              setPendingWalletHint(null);
-            }
-          }
-        }
+        setBusy(null);
       }
-    };
-
-    resumeWalletConnect();
-
-    return () => {
-      active = false;
-      setIsAutoResuming(false);
-    };
-  }, [
-    mobileResumeWallet,
-    isLoading,
-    completeWalletConnection,
-    consumeMobileResumeWallet,
-  ]);
-
-  useEffect(() => {
-    if (!isWalletConnected || !provider) {
-      restoredSyncProviderRef.current = null;
-      return;
-    }
-
-    if (isLoading || isAutoResuming || mobileResumeWallet) return;
-    if (authStatus !== "idle") return;
-    if (restoredSyncProviderRef.current === provider) return;
-
-    let active = true;
-
-    const syncRestoredWallet = async () => {
-      setIsLoading(true);
-      setWalletLoading(provider);
-
-      try {
-        const inscriptions = await fetchInscriptionsWithRetry(provider);
-        const processed = await processInscriptions(inscriptions);
-        setWalletItems(processed);
-        const inscriptionIds = processed.map((item) => item.id);
-        await authenticateWallet(inscriptionIds);
-      } catch (error) {
-        if (!active) return;
-        console.error(`Failed to sync restored ${provider} session:`, error);
-      } finally {
-        if (active) {
-          restoredSyncProviderRef.current = provider;
-          setWalletLoading(null);
-          setIsLoading(false);
-        }
-      }
-    };
-
-    syncRestoredWallet();
-
-    return () => {
-      active = false;
-    };
-  }, [
-    isWalletConnected,
-    provider,
-    isLoading,
-    isAutoResuming,
-    mobileResumeWallet,
-    authStatus,
-    fetchInscriptionsWithRetry,
-    processInscriptions,
-    setWalletItems,
-    authenticateWallet,
-  ]);
-
-  const handleOpenWalletApp = () => {
-    if (!mobilePrompt?.deeplink) return;
-    window.location.href = mobilePrompt.deeplink;
-  };
-
-  const buttonClass = cn(
-    "btn btn-ghost text-black dark:text-white font-bold rounded-lg transition duration-300 w-full mb-2",
-    "bg-white dark:bg-gray-800 hover:bg-gray-900 hover:text-white dark:hover:bg-gray-700",
-    isLoading && "opacity-50 cursor-not-allowed",
-    className
+    },
+    [connectWallet],
   );
+
+  // Came back from a wallet app: reconnect directly instead of bouncing again.
+  useEffect(() => {
+    if (!mobileResumeWallet || busy) return;
+    choose(mobileResumeWallet as WalletName, { skipDeeplink: true })
+      .finally(() => consumeMobileResumeWallet());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobileResumeWallet]);
+
+  const shortAddress = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "";
+
+  if (isWalletConnected) {
+    return (
+      <div className={`flex items-center gap-2 rounded-full border border-base-300/80 bg-base-100/75 px-3 py-1.5 ${className}`}>
+        <span className="text-[10px] font-bold uppercase tracking-wide text-base-content/60">
+          {provider ? WALLET_LABEL[provider as WalletName] || provider : "wallet"}
+        </span>
+        <span className="font-mono text-xs text-base-content" title={address}>
+          {shortAddress}
+        </span>
+        <button
+          type="button"
+          onClick={disconnectWallet}
+          className="text-xs text-base-content/50 hover:text-base-content"
+          title="Disconnect wallet"
+        >
+          ✕
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <div className="w-full">
-        {isWalletConnected ? (
-          <Button onClick={handleDisconnect} className={buttonClass}>
-            Disconnect
-            {authStatus === "authenticated" ? <span className="text-xs ml-2">verified</span> : null}
-            {authStatus === "error" && authError ? <span className="text-xs ml-2">auth failed</span> : null}
-          </Button>
-        ) : (
-          <DialogTrigger asChild>
-            <Button className={buttonClass} disabled={isLoading}>
-              {isLoading ? "Connecting..." : "Connect Wallet"}
-            </Button>
-          </DialogTrigger>
-        )}
+    <div ref={ref} className={`relative ${className}`}>
+      <button
+        type="button"
+        className="btn btn-sm btn-outline"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        {busy ? "Connecting…" : "Connect wallet"}
+      </button>
 
-        {isAutoResuming ? (
-          <span className="mt-1 block text-center text-[10px] text-base-content/70">
-            Resuming wallet connection and syncing My Media...
-          </span>
-        ) : null}
+      {open ? (
+        <div className="absolute left-0 top-full z-50 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-3 text-left shadow-lg">
+          <p className="text-[11px] leading-snug text-base-content/70">
+            Explore the ordinals held in your Bitcoin wallet. Read-only, and not a login — your
+            Nostr identity stays as it is.
+          </p>
 
-        {isMobile && !inWalletBrowser && !isWalletConnected && pendingWalletHint ? (
-          <div className="mt-1 rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] text-blue-900 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-200">
-            <div>This browser can't access {pendingWalletHint === "unisat" ? "UniSat" : "Xverse"} directly after switching apps.</div>
-            <button
-              className="mt-1 underline"
-              onClick={() => {
-                const deeplink = buildWalletReentryDeeplink(pendingWalletHint);
-                if (deeplink) {
-                  window.location.href = deeplink;
-                }
-              }}
-            >
-              Open in {pendingWalletHint === "unisat" ? "UniSat" : "Xverse"}
-            </button>
-            <div className="mt-1">If it opens here again, open this URL from your wallet browser or connect on desktop.</div>
-          </div>
-        ) : null}
-      </div>
-
-      <DialogContent className="bg-white dark:bg-gray-800 border-none text-black dark:text-white rounded-2xl">
-        <DialogHeader>
-          <DialogTitle>Connect Wallet</DialogTitle>
-        </DialogHeader>
-        <div className="p-4">
-          {WALLET_OPTIONS.map((wallet) => (
-            (() => {
-              const canConnect =
-                wallet.name === "unisat" ||
-                availableWallets[wallet.name] ||
-                (isMobile && !inWalletBrowser);
-
-              return (
-            <Button
-              key={wallet.name}
-              onClick={() => handleConnect(wallet.name)}
-              className={buttonClass}
-              disabled={isLoading || walletLoading === wallet.name || !canConnect}
-            >
-              {walletLoading === wallet.name ? "Connecting..." : `Connect ${wallet.label}`}
-            </Button>
-              );
-            })()
-          ))}
-
-          {isMobile && mobilePrompt ? (
-            <div className="mt-3 rounded-lg border border-base-300 bg-base-100 p-3 text-sm">
-              <p className="mb-2 text-base-content/80">{mobilePrompt.message}</p>
-              <div className="flex gap-2">
-                {mobilePrompt.deeplink ? (
-                  <Button className="btn btn-sm" onClick={handleOpenWalletApp}>
-                    Open {mobilePrompt.wallet === "unisat" ? "UniSat" : "Xverse"}
-                  </Button>
+          <div className="mt-2 grid gap-1">
+            {(["unisat", "xverse"] as WalletName[]).map((wallet) => (
+              <button
+                key={wallet}
+                type="button"
+                disabled={Boolean(busy)}
+                onClick={() => choose(wallet)}
+                className="btn btn-sm btn-ghost justify-start"
+              >
+                {busy === wallet ? "Connecting…" : `Connect ${WALLET_LABEL[wallet]}`}
+                {!providers[wallet] && !runtime?.isMobile ? (
+                  <span className="ml-auto text-[10px] font-normal opacity-50">not detected</span>
                 ) : null}
-                <Button
-                  className="btn btn-sm btn-outline"
-                  onClick={() => {
-                    setMobilePrompt(null);
-                    clearMobileConnectNotice();
-                  }}
-                >
-                  Dismiss
-                </Button>
-              </div>
-              {!inWalletBrowser ? (
-                <p className="mt-2 text-xs text-base-content/70">Mobile web uses wallet deeplinks first. Open this site inside your wallet browser for direct connect.</p>
-              ) : null}
-            </div>
+              </button>
+            ))}
+          </div>
+
+          {runtime?.isMobile && !runtime?.inWalletBrowser ? (
+            <p className="mt-2 text-[10px] leading-snug text-base-content/50">
+              On a phone the wallet's extension is not present in this browser, so connecting opens
+              the wallet app and comes back here.
+            </p>
           ) : null}
+
+          {deeplink ? (
+            <a className="btn btn-outline btn-xs mt-2 w-full" href={deeplink}>
+              Open wallet app again
+            </a>
+          ) : null}
+
+          {notice ? <p className="mt-2 text-[11px] leading-snug text-warning">{notice}</p> : null}
         </div>
-      </DialogContent>
-    </Dialog>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Navbar control: the Nostr login (the account) beside the wallet menu (the
+ * ordinals). They are independent — signing in does not connect a wallet, and
+ * connecting a wallet does not sign anyone in.
+ */
+const ConnectWallet = ({ className = "" }: { className?: string }) => {
+  const { isNostrConnected, nostrProfile, nostrNpub } = useWallet();
+  const shortNpub = nostrNpub ? `${nostrNpub.slice(0, 8)}…${nostrNpub.slice(-6)}` : "";
+
+  return (
+    <div className={`flex items-center gap-2 ${className}`}>
+      <WalletConnectMenu />
+      <WalletLogin />
+      {isNostrConnected && !nostrProfile?.name && shortNpub ? (
+        <span className="text-[10px] text-base-content/60">signed in</span>
+      ) : null}
+    </div>
   );
 };
 
