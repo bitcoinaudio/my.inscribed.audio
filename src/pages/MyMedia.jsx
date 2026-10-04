@@ -2,6 +2,9 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import { fadeIn, staggerContainer } from "../utils/motion";
 import { useWallet } from "../context/WalletContext";
+import { PaymentWalletButton } from "@bitcoinaudio-org/signer/react";
+import { useOrdinalsHost } from "../context/OrdinalsHostContext";
+import { ORD_SITE_2 } from "../utils/inscriptions";
 import beatblockImage from "/images/beatblocks.png";
 import ordImage from "/images/ordinals.svg";
 import iomImage from "/images/idesofmarch.png";
@@ -11,7 +14,6 @@ import GLTFViewer from "../components/GLTFViewer";
 import { Dialog, DialogContent, DialogTrigger } from "../components/ui/dialog";
 
 // Constants
-const ORD_SERVER = "https://radinals.bitcoinaudio.co";
 const ITEMS_PER_PAGE = 10;
 
 const MIME_TYPES = {
@@ -143,11 +145,19 @@ const openMusicPlayer = () => {
 
 // MediaCard Component
 const MediaCard = React.memo(({ item }) => {
+  const ordHost = useOrdinalsHost();
   const contentCategory = getContentCategory(item.contentType);
   const isBeatBlock = item.isBeatBlock;
   const isBitmap = item.isBitmap;
-  const contentUrl = item.isBRC420 ? item.brc420Url : `${ORD_SERVER}/content/${item.id}`;
-  const previewUrl = `${ORD_SERVER}/preview/${item.id}`;
+  const contentUrl = item.isBRC420 ? item.brc420Url : `${ordHost}/content/${item.id}`;
+  const previewUrl = `${ordHost}/preview/${item.id}`;
+
+  const handleImgError = (e) => {
+    const fallback = `${ORD_SITE_2}/content/${item.id}`;
+    if (e.currentTarget.src !== fallback) {
+      e.currentTarget.src = fallback;
+    }
+  };
 
   const renderContent = () => {
     switch (contentCategory) {
@@ -169,7 +179,7 @@ const MediaCard = React.memo(({ item }) => {
       case "image":
         return (
           <div className="card-body shadow-inner">
-            <img className="size-48" src={contentUrl} alt="Inscription" />
+            <img className="size-48" src={contentUrl} alt="Inscription" onError={handleImgError} />
           </div>
         );
       case "model":
@@ -214,7 +224,7 @@ const MediaCard = React.memo(({ item }) => {
               <a
                 className="tooltip"
                 data-tip="Details"
-                href={`${ORD_SERVER}/inscription/${item.id}`}
+                href={`${ordHost}/inscription/${item.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -227,7 +237,7 @@ const MediaCard = React.memo(({ item }) => {
               <a
                 className="tooltip"
                 data-tip="Ordinal"
-                href={`${ORD_SERVER}/content/${item.id}`}
+                href={`${ordHost}/content/${item.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -289,7 +299,7 @@ const MediaCard = React.memo(({ item }) => {
 
 // MyMedia Component
 const MyMedia = () => {
-  const { walletItems } = useWallet();
+  const { walletItems, isWalletConnected, address } = useWallet();
   const [selectedMimeTypes, setSelectedMimeTypes] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -337,6 +347,17 @@ const MyMedia = () => {
         />
 
         <div className="mt-4 flex flex-col items-center">
+        {!isWalletConnected ? (
+          <div className="mb-6 w-full max-w-lg rounded-box border border-base-300 bg-base-200 p-4 text-center">
+            <p className="text-sm text-base-content/75">
+              Load the ordinals held by a Bitcoin wallet. This only reads your inscriptions —
+              it is not a login, and it never changes your Nostr identity.
+            </p>
+            <div className="mt-3 flex justify-center">
+              <PaymentWalletButton label="Connect wallet" />
+            </div>
+          </div>
+        ) : null}
           <div className="mb-4 rounded-box border border-base-300 bg-base-200 px-4 py-3 text-center">
             <span className="text-sm font-bold">Total Items: {filteredItems.length}</span>
             <div className="mt-2 text-sm text-base-content/70">

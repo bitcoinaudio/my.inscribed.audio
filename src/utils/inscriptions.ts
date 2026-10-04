@@ -2,18 +2,28 @@
 import idesofmarch from '../lib/collections/idesofmarch.json';
 import dust from '../lib/collections/dust.json';
 
-const ORD_SITE_1 = "https://radinals.bitcoinaudio.co";
-const ORD_SITE_2 = "https://ordinals.com";
+export const ORD_SITE_1 = "https://radinals.bitcoinaudio.co";
+export const ORD_SITE_2 = "https://ordinals.com";
 const BEATBLOCK_PREFIX = "808f2bcdf19691342041adfa507abba33003bfb2643496bb256897a2c8dc1808i";
 
-export async function getOrdinalsSite(): Promise<string> {
-  try {
-    const res = await fetch(ORD_SITE_1, { method: 'HEAD' });
-    return res.status === 200 ? ORD_SITE_1 : ORD_SITE_2;
-  } catch (err) {
-    console.warn("Falling back to secondary ordinals site:", err);
-    return ORD_SITE_2;
-  }
+let ordinalsSitePromise: Promise<string> | null = null;
+
+export function getOrdinalsSite(): Promise<string> {
+  if (ordinalsSitePromise) return ordinalsSitePromise;
+  ordinalsSitePromise = (async () => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 3000);
+    try {
+      const res = await fetch(ORD_SITE_1, { method: "HEAD", signal: ctrl.signal });
+      return res.ok ? ORD_SITE_1 : ORD_SITE_2;
+    } catch (err) {
+      console.warn("Falling back to secondary ordinals site:", err);
+      return ORD_SITE_2;
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+  return ordinalsSitePromise;
 }
 
 export async function getBRC420Data(id: string): Promise<{ isBRC420: boolean; brc420Url: string }> {

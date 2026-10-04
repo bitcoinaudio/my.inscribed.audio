@@ -1,9 +1,12 @@
 import React from "react"
 import { motion } from "framer-motion"
 import { fadeIn, staggerContainer } from "../utils/motion"
+import { useOrdinalsHost } from "../context/OrdinalsHostContext"
 
- 
+const IDES_OF_MARCH_ID = "b1ade815da823de16f0dc26417c5bfb9caefc9005f0e9585b1f0072eb7e43605i0";
+
 const Feature = () => {
+  const ordHost = useOrdinalsHost();
   return (
     <motion.div
       variants={staggerContainer}
@@ -31,7 +34,7 @@ The Ides Of March isn’t just another music NFT—it’s a revolutionary approa
  
 			<div className="flex justify-center">
  
-			<iframe className="samplerr border border-base-300 bg-base-100" src="https://radinals.bitcoinaudio.co/content/b1ade815da823de16f0dc26417c5bfb9caefc9005f0e9585b1f0072eb7e43605i0" title="ordinal"  allowFullScreen ></iframe>
+			<iframe className="samplerr border border-base-300 bg-base-100" src={`${ordHost}/content/${IDES_OF_MARCH_ID}`} title="ordinal"  allowFullScreen ></iframe>
 			</div>
 		</div>
 
