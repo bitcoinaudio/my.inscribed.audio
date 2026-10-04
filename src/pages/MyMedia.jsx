@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import { fadeIn, staggerContainer } from "../utils/motion";
 import { useWallet } from "../context/WalletContext";
-import { PaymentWalletButton } from "@bitcoinaudio-org/signer/react";
+import { WalletConnectMenu } from "../components/ConnectWallet";
 import { useOrdinalsHost } from "../context/OrdinalsHostContext";
 import { ORD_SITE_2 } from "../utils/inscriptions";
 import { ITEMS_PER_PAGE, enrichInscriptions } from "../lib/walletMedia";
@@ -410,20 +410,18 @@ const MyMedia = () => {
 
         <div className="mt-4 flex flex-col items-center">
           {!isWalletConnected ? (
-            <div className="mb-6 w-full max-w-lg rounded-box border border-base-300 bg-base-200 p-4 text-center">
+            <div className="mb-6 flex w-full max-w-lg flex-col items-center gap-3 rounded-box border border-base-300 bg-base-200 p-4 text-center">
               <p className="text-sm text-base-content/75">
-                Load the ordinals held by a Bitcoin wallet. This only reads your inscriptions —
-                it is not a login, and it never changes your Nostr identity.
+                Explore the ordinals held in your Bitcoin wallet. Read-only — nothing is bought or
+                sold here, and connecting does not change your Nostr identity.
               </p>
               {leftoverWallet ? (
-                <p className="mt-2 text-xs text-base-content/60">
+                <p className="text-xs text-base-content/60">
                   {leftoverWallet.provider === "unisat" ? "UniSat" : "Xverse"} is still authorised in
                   your browser but is not connected to this page — reconnect it to list its ordinals.
                 </p>
               ) : null}
-              <div className="mt-3 flex justify-center">
-                <PaymentWalletButton label="Connect wallet" />
-              </div>
+              <WalletConnectMenu />
             </div>
           ) : (
             <div className="mb-4 w-full max-w-2xl rounded-box border border-base-300 bg-base-100 px-4 py-2 text-center text-xs text-base-content/70">
