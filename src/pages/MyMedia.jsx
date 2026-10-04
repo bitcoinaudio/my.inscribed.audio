@@ -5,17 +5,15 @@ import { useWallet } from "../context/WalletContext";
 import { PaymentWalletButton } from "@bitcoinaudio-org/signer/react";
 import { useOrdinalsHost } from "../context/OrdinalsHostContext";
 import { ORD_SITE_2 } from "../utils/inscriptions";
+import { ITEMS_PER_PAGE, enrichInscriptions } from "../lib/walletMedia";
 import beatblockImage from "/images/beatblocks.png";
 import ordImage from "/images/ordinals.svg";
 import iomImage from "/images/idesofmarch.png";
 import woman from "/images/woman-sticker.webp";
 import MimeTypeFilter from "../components/MimeTypeFilter";
 import GLTFViewer from "../components/GLTFViewer";
-import { Dialog, DialogContent, DialogTrigger } from "../components/ui/dialog";
 
 // Constants
-const ITEMS_PER_PAGE = 10;
-
 const MIME_TYPES = {
   text: [
     "application/json",
@@ -92,11 +90,11 @@ const LazyIframe = ({ src, placeholderSrc, className }) => {
 const openMusicPlayer = () => {
   const url = "https://up6it6g3dbstnw4j5rbyolaur3n27hv5ur2eojhmsd243jgzpxta.ar.io/o_yJ-NsYZTbbiexDhywUjtuvnr2kdEck7JD1zaTZfeY/";
   const windowName = "musicPlayer_" + Date.now(); // Unique name to avoid conflicts
-  
+
   // Enhanced window features for better cross-browser compatibility
   const windowFeatures = [
     "width=800",
-    "height=600", 
+    "height=600",
     "resizable=yes",
     "scrollbars=yes",
     "location=no",
@@ -111,7 +109,7 @@ const openMusicPlayer = () => {
 
   try {
     const popup = window.open(url, windowName, windowFeatures);
-    
+
     // Handle popup blocker
     if (!popup) {
       // Fallback: try without window features (some browsers are less restrictive)
@@ -125,7 +123,7 @@ const openMusicPlayer = () => {
     } else {
       // Focus the popup window
       popup.focus();
-      
+
       // Optional: Add error handling for cross-origin restrictions
       try {
         popup.document.title = "Music Player";
@@ -140,17 +138,12 @@ const openMusicPlayer = () => {
   }
 };
 
-
-
-
 // MediaCard Component
 const MediaCard = React.memo(({ item }) => {
   const ordHost = useOrdinalsHost();
   const contentCategory = getContentCategory(item.contentType);
-  const isBeatBlock = item.isBeatBlock;
-  const isBitmap = item.isBitmap;
-  const contentUrl = item.isBRC420 ? item.brc420Url : `${ordHost}/content/${item.id}`;
-  const previewUrl = `${ordHost}/preview/${item.id}`;
+  const isBitmap = item.meta.isBitmap;
+  const contentUrl = item.meta.isBRC420 ? item.meta.brc420Url : `${ordHost}/content/${item.id}`;
 
   const handleImgError = (e) => {
     const fallback = `${ORD_SITE_2}/content/${item.id}`;
@@ -162,13 +155,13 @@ const MediaCard = React.memo(({ item }) => {
   const renderContent = () => {
     switch (contentCategory) {
       case "text":
-        return item.contentType.startsWith("text/html") ? (
+        return item.contentType?.startsWith("text/html") ? (
           <LazyIframe src={contentUrl} />
         ) : isBitmap ? (
           <div>
-            <LazyIframe src={`https://feed.bitmapstr.io/block/height/${item.bitmap}`} />
-             <p className="py-4 text-lg font-urbanist font-medium text-primary/80">
-              {item.bitmap + '.bitmap'}
+            <LazyIframe src={`https://feed.bitmapstr.io/block/height/${item.meta.bitmap}`} />
+            <p className="py-4 text-lg font-urbanist font-medium text-primary/80">
+              {item.meta.bitmap + ".bitmap"}
             </p>
           </div>
         ) : (
@@ -183,7 +176,7 @@ const MediaCard = React.memo(({ item }) => {
           </div>
         );
       case "model":
-        return  <GLTFViewer src={contentUrl} />
+        return <GLTFViewer src={contentUrl} />;
       case "video":
       case "audio":
         return (
@@ -196,27 +189,40 @@ const MediaCard = React.memo(({ item }) => {
     }
   };
 
+  const attributes = item.collection.attributes;
+  // The curated editions each carry one attribute row; only the "Woman" edition
+  // had a music-player affordance, and the old card offered it twice (details
+  // list and action bar). Now it appears once.
+  const isWomanEdition = Array.isArray(attributes)
+    && attributes.some((entry) => Object.values(entry || {}).includes("Woman"));
+
   return (
     <div className="card mt-4 max-w-2xl gap-4 rounded-box border border-base-300 bg-base-200 transition duration-300 hover:-translate-y-1 hover:border-primary/50">
       <div className="card-body">
         {renderContent()}
-        
-        <p className="text-md font-urbanist font-medium opacity-60">
-          {item.isEnhanced ? "Enhanced" : "Basic"} {item.isBRC420 ? "BRC420" : "Ordinal"}
+
+        <div className="text-md font-urbanist font-medium opacity-60">
+          <p>
+            {item.collection.isEnhanced ? "Enhanced" : "Basic"} {item.meta.isBRC420 ? "BRC420" : "Ordinal"}
+            {item.collection.collectionName ? ` · ${item.collection.collectionName}` : ""}
+          </p>
+          <p className="mt-1 truncate text-xs text-base-content/50" title={item.id}>{item.id}</p>
           <hr />
-          {item.attributes && (
+          {Array.isArray(attributes) && attributes.length > 0 && (
             <div>
               <h3 className="font-urbanist text-xl font-bold">Attributes:</h3>
-              <ul className="list-disc list-inside">
-                {Object.entries(item.attributes[0] || {}).map(([key, value]) => (
-                  <li key={key} className="text-md font-urbanist font-medium opacity-60">
-                    {key}: {value}
+              <ul className="list-inside list-disc">
+                {attributes.map((row, index) => (
+                  <li key={index}>
+                    {Object.entries(row || {}).map(([key, value]) => (
+                      <span key={key}>{key}: {value}</span>
+                    ))}
                   </li>
                 ))}
               </ul>
             </div>
           )}
-        </p>
+        </div>
 
         <div className="card-actions justify-center">
           <ul className="menu menu-horizontal mt-1 rounded-box bg-base-100">
@@ -244,7 +250,7 @@ const MediaCard = React.memo(({ item }) => {
                 <img className="size-5" src={ordImage} alt="Ordinal" />
               </a>
             </li>
-            {item.isIOM && (
+            {item.collection.isIOM && (
               <li>
                 <a
                   className="tooltip"
@@ -257,7 +263,7 @@ const MediaCard = React.memo(({ item }) => {
                 </a>
               </li>
             )}
-            {item.isBeatBlock && (
+            {item.collection.isBeatBlock && (
               <li>
                 <a
                   className="tooltip"
@@ -266,29 +272,16 @@ const MediaCard = React.memo(({ item }) => {
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <svg width="120" height="35" viewBox="0 0 969 283" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-6 w-auto"><path d="M137.315 32.5269V0H104.809V32.5269H83.281V0H50.7754V32.5269H0V250.473H50.7366V283H83.2422V250.473H104.77V283H137.276V250.473H188.013V32.5269H137.276H137.315ZM42.2805 208.204V158.792H145.848V208.204H42.2805ZM42.2805 124.557V74.8353H145.848V124.557H42.2805Z" fill="#FF6804"></path><path d="M281.185 150.874H239.292V192.794H281.185V206.767H225.328V81.0069H281.185V94.9802H295.149V136.9H281.185V94.9802H239.292V136.9H281.185V150.874H295.149V192.794H281.185V150.874Z" fill="white"></path><path d="M326.569 192.794H312.604V136.9H326.569V150.874H368.461V136.9H326.569V122.927H368.461V136.9H382.425V164.847H326.569V192.794H368.461V206.767H326.569V192.794ZM368.5 178.821H382.464V192.794H368.5V178.821Z" fill="white"></path><path d="M413.884 192.794H399.92V164.847H413.884V192.794H455.776V164.847H413.884V150.874H455.776V136.9H413.884V122.927H455.776V136.9H469.741V206.767H413.884V192.794Z" fill="white"></path><path d="M487.196 94.9802H501.16V122.927H515.124V136.9H501.16V192.794H515.124V206.767H501.16V192.794H487.196V94.9802Z" fill="white"></path><path d="M588.436 150.874H546.544V192.794H588.436V206.767H532.58V81.0069H588.436V94.9802H602.401V136.9H588.436V94.9802H546.544V136.9H588.436V150.874H602.401V192.794H588.436V150.874Z" fill="white"></path><path d="M619.856 81.0069H633.82V206.767H619.856V81.0069Z" fill="white"></path><path d="M651.275 136.9H665.24V192.794H651.275V136.9ZM665.24 122.927H707.132V136.9H665.24V122.927ZM665.24 192.794H707.132V206.767H665.24V192.794ZM707.132 136.9H721.096V192.794H707.132V136.9Z" fill="white"></path><path d="M738.552 136.9H752.516V192.794H738.552V136.9ZM752.516 122.927H794.409V136.9H752.516V122.927ZM752.516 192.794H794.409V206.767H752.516V192.794ZM794.409 136.9H808.373V150.874H794.409V136.9ZM794.409 178.821H808.373V192.794H794.409V178.821Z" fill="white"></path><path d="M853.795 164.847H839.831V206.767H825.867V81.0069H839.831V150.874H853.795V164.847H867.759V178.821H881.724V192.794H895.688V206.767H881.724V192.794H867.759V178.821H853.795V164.847ZM853.795 136.9H867.759V150.874H853.795V136.9ZM867.759 122.927H881.724V136.9H867.759V122.927Z" fill="white"></path><path d="M913.104 136.9H927.069V150.874H913.104V136.9ZM913.104 178.821H927.069V192.794H913.104V178.821ZM927.107 122.927H955.036V136.9H927.107V122.927ZM927.107 150.874H941.072V164.847H927.107V150.874ZM927.107 192.794H955.036V206.767H927.107V192.794ZM941.072 164.847H955.036V178.821H941.072V164.847ZM955.036 136.9H969V150.874H955.036V136.9ZM955.036 178.821H969V192.794H955.036V178.821Z" fill="white"></path></svg>
+                  <img className="h-6 w-auto" src={beatblockImage} alt="BeatBlock.io" />
                 </a>
               </li>
-
-              
             )}
-            {item.attributes && (
-              <div>
-                <ul className="">
-                  {Object.entries(item.attributes[0] || {}).map(([key, value]) => (
-                    <div key={key} className="">
-                      {value === "Woman" && (
-                        <button
-                          className="tooltip"
-                          onClick={openMusicPlayer}
-                        >
-                          <img id="image" className="w-12 h-10" src={woman} alt="Woman" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </ul>
-              </div>
+            {isWomanEdition && (
+              <li>
+                <button className="tooltip" data-tip="Play" onClick={openMusicPlayer}>
+                  <img className="h-10 w-12" src={woman} alt="Woman" />
+                </button>
+              </li>
             )}
           </ul>
         </div>
@@ -299,32 +292,101 @@ const MediaCard = React.memo(({ item }) => {
 
 // MyMedia Component
 const MyMedia = () => {
-  const { walletItems, isWalletConnected, address } = useWallet();
+  const {
+    isWalletConnected,
+    address,
+    provider,
+    walletItems,
+    fetchInscriptions,
+    setWalletItems,
+    disconnectWallet,
+  } = useWallet();
+  const [enrichedItems, setEnrichedItems] = useState([]);
   const [selectedMimeTypes, setSelectedMimeTypes] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [isLoadingItems, setIsLoadingItems] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
-  const filteredItems = useMemo(() => (
-    selectedMimeTypes.length > 0
-      ? walletItems.filter((item) => {
-          const matchesMime = selectedMimeTypes.includes(item.contentType);
-          const matchesBitmap = selectedMimeTypes.includes(BITMAP_FILTER_KEY) && item.isBitmap;
-          return matchesMime || matchesBitmap;
-        })
-      : walletItems
-  ), [selectedMimeTypes, walletItems]);
+  // A connected wallet does not by itself mean the list is loaded: on a fresh
+  // page load the provider restores the connection from storage but holds no
+  // inscriptions. Fetch on connect and on arriving here with a stale-empty list.
+  useEffect(() => {
+    if (!isWalletConnected) return;
+    if (walletItems.length > 0) return;
 
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
+    let active = true;
+    setIsLoadingItems(true);
+    setLoadError("");
+    // fetchInscriptions() returns the list; it does not touch provider state.
+    // Storing it is this caller's job — skipping that was why a page load (as
+    // opposed to an in-session connect) reported an empty wallet.
+    fetchInscriptions(100)
+      .then((items) => {
+        if (active) setWalletItems(items);
+      })
+      .catch((error) => {
+        if (active) setLoadError(error?.message || "Could not read inscriptions from the wallet");
+      })
+      .finally(() => {
+        if (active) setIsLoadingItems(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isWalletConnected, walletItems.length, fetchInscriptions]);
+
+  // Enrich only the page being shown, and say plainly what the wallet holds.
+  const pageItems = useMemo(
+    () => walletItems.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE),
+    [walletItems, currentPage],
+  );
 
   useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
+    if (pageItems.length === 0) {
+      setEnrichedItems([]);
+      return undefined;
     }
-  }, [currentPage, totalPages]);
+    let active = true;
+    enrichInscriptions(pageItems, ITEMS_PER_PAGE).then((items) => {
+      if (active) setEnrichedItems(items);
+    });
+    return () => {
+      active = false;
+    };
+  }, [pageItems]);
 
-  const paginatedItems = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [filteredItems, currentPage]);
+  const filteredItems = useMemo(
+    () =>
+      selectedMimeTypes.length > 0
+        ? enrichedItems.filter((item) => {
+            const matchesMime = selectedMimeTypes.includes(item.contentType);
+            const matchesBitmap = selectedMimeTypes.includes(BITMAP_FILTER_KEY) && item.meta.isBitmap;
+            return matchesMime || matchesBitmap;
+          })
+        : enrichedItems,
+    [selectedMimeTypes, enrichedItems],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(walletItems.length / ITEMS_PER_PAGE));
+  const isFiltered = selectedMimeTypes.length > 0;
+  const isEmpty = isWalletConnected && !isLoadingItems && walletItems.length === 0;
+
+  // The shared provider deliberately does not rehydrate a wallet connection once
+  // a Nostr identity exists (a wallet must never look like an account session).
+  // So a signed-in visitor arrives here with the wallet still authorised in the
+  // browser but not connected to this page. Say that plainly instead of showing a
+  // bare "connect" prompt that reads like the previous connect was lost.
+  const leftoverWallet = useMemo(() => {
+    if (isWalletConnected) return null;
+    try {
+      const raw = localStorage.getItem("myinscribed.connectedWallet");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed?.provider === "unisat" || parsed?.provider === "xverse" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }, [isWalletConnected]);
 
   const handlePageChange = (newPage) => {
     setCurrentPage(Math.min(Math.max(newPage, 1), totalPages));
@@ -347,54 +409,99 @@ const MyMedia = () => {
         />
 
         <div className="mt-4 flex flex-col items-center">
-        {!isWalletConnected ? (
-          <div className="mb-6 w-full max-w-lg rounded-box border border-base-300 bg-base-200 p-4 text-center">
-            <p className="text-sm text-base-content/75">
-              Load the ordinals held by a Bitcoin wallet. This only reads your inscriptions —
-              it is not a login, and it never changes your Nostr identity.
-            </p>
-            <div className="mt-3 flex justify-center">
-              <PaymentWalletButton label="Connect wallet" />
+          {!isWalletConnected ? (
+            <div className="mb-6 w-full max-w-lg rounded-box border border-base-300 bg-base-200 p-4 text-center">
+              <p className="text-sm text-base-content/75">
+                Load the ordinals held by a Bitcoin wallet. This only reads your inscriptions —
+                it is not a login, and it never changes your Nostr identity.
+              </p>
+              {leftoverWallet ? (
+                <p className="mt-2 text-xs text-base-content/60">
+                  {leftoverWallet.provider === "unisat" ? "UniSat" : "Xverse"} is still authorised in
+                  your browser but is not connected to this page — reconnect it to list its ordinals.
+                </p>
+              ) : null}
+              <div className="mt-3 flex justify-center">
+                <PaymentWalletButton label="Connect wallet" />
+              </div>
             </div>
-          </div>
-        ) : null}
-          <div className="mb-4 rounded-box border border-base-300 bg-base-200 px-4 py-3 text-center">
-            <span className="text-sm font-bold">Total Items: {filteredItems.length}</span>
-            <div className="mt-2 text-sm text-base-content/70">
-              Page {currentPage} of {totalPages}
+          ) : (
+            <div className="mb-4 w-full max-w-2xl rounded-box border border-base-300 bg-base-100 px-4 py-2 text-center text-xs text-base-content/70">
+              <span className="font-bold uppercase tracking-wide">{provider}</span>{" "}
+              <span className="font-mono">{address}</span>{" "}
+              <button className="ml-2 underline" onClick={disconnectWallet}>
+                disconnect
+              </button>
             </div>
-          </div>
+          )}
 
-          <div className="flex items-center gap-4">
-            <button
-              className="btn btn-ghost font-urbanist text-lg font-semibold"
-              onClick={() => handlePageChange(currentPage - 1)}
-              disabled={currentPage === 1}
-            >
-              Previous
-            </button>
-            <input
-              type="number"
-              className="input input-bordered w-20 text-center"
-              value={currentPage}
-              onChange={(e) => handlePageChange(Number(e.target.value))}
-              min="1"
-              max={totalPages}
-            />
-            <button
-              className="btn btn-ghost font-urbanist text-lg font-semibold"
-              onClick={() => handlePageChange(currentPage + 1)}
-              disabled={currentPage === totalPages}
-            >
-              Next
-            </button>
-          </div>
+          {loadError ? <p className="mb-3 text-sm text-error">{loadError}</p> : null}
 
-          <div className="flex flex-wrap gap-4 justify-center mt-4">
-            {paginatedItems.map((item) => (
-              <MediaCard key={item.id} item={item} />
-            ))}
-          </div>
+          {isLoadingItems ? (
+            <div className="my-8 flex items-center gap-2 text-sm text-base-content/70">
+              <span className="loading loading-spinner loading-sm" /> Reading inscriptions from the wallet…
+            </div>
+          ) : null}
+
+          {isEmpty ? (
+            <div className="my-8 max-w-lg rounded-box border border-base-300 bg-base-200 p-6 text-center text-sm text-base-content/70">
+              No ordinals found in this wallet.
+              <div className="mt-2 text-xs">
+                Connect a different address, or check that this wallet holds inscriptions.
+              </div>
+            </div>
+          ) : null}
+
+          {!isLoadingItems && walletItems.length > 0 ? (
+            <>
+              <div className="mb-4 rounded-box border border-base-300 bg-base-200 px-4 py-3 text-center">
+                <span className="text-sm font-bold">
+                  {isFiltered
+                    ? `${filteredItems.length} shown by the current filter, out of ${pageItems.length} on this page`
+                    : `${walletItems.length} inscription${walletItems.length === 1 ? "" : "s"} in this wallet`}
+                </span>
+                <div className="mt-2 text-sm text-base-content/70">
+                  Page {currentPage} of {totalPages}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <button
+                  className="btn btn-ghost font-urbanist text-lg font-semibold"
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </button>
+                <input
+                  type="number"
+                  className="input input-bordered w-20 text-center"
+                  value={currentPage}
+                  onChange={(e) => handlePageChange(Number(e.target.value))}
+                  min="1"
+                  max={totalPages}
+                />
+                <button
+                  className="btn btn-ghost font-urbanist text-lg font-semibold"
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap justify-center gap-4">
+                {enrichedItems.length === 0 && pageItems.length > 0 ? (
+                  <div className="my-6 flex items-center gap-2 text-sm text-base-content/70">
+                    <span className="loading loading-spinner loading-sm" /> Reading inscription metadata…
+                  </div>
+                ) : null}
+                {filteredItems.map((item) => (
+                  <MediaCard key={item.id} item={item} />
+                ))}
+              </div>
+            </>
+          ) : null}
         </div>
       </motion.div>
     </motion.div>
